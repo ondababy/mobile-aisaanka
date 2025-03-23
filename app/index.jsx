@@ -20,11 +20,6 @@ const { width, height } = Dimensions.get("window");
 export default function LandingScreen() {
   const router = useRouter();
 
-  const handleGetStarted = () => {
-    // router.push("/Screen/Main");
-    router.push("/Screen/Dashboard");
-  };
-
   const handleLogin = () => {
     router.push("/Auth/Login");
   };
@@ -112,7 +107,7 @@ export default function LandingScreen() {
           <View style={styles.buttonContainer}>
             <TouchableOpacity
               style={styles.loginButton}
-              onPress={() => router.push("/Auth/Login")}
+              onPress={() => router.push("/Screen/Dashboard")}
             >
               <Feather
                 name="log-in"

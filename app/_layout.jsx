@@ -41,6 +41,7 @@ const RootLayout = () => {
       <Stack.Screen name="Screen/Review" options={{ headerShown: false }} />
       <Stack.Screen name="Screen/Profile" options={{ headerShown: false }} />
       <Stack.Screen name="Screen/Dashboard" options={{ headerShown: false }} />
+      <Stack.Screen name="Screen/Home" options={{ headerShown: false }} />
       <Stack.Screen name="Screen/History" options={{ headerShown: false }} />
       <Stack.Screen name="Screen/About" options={{ headerShown: false }} />
       <Stack.Screen name="Screen/Faq" options={{ headerShown: false }} />
