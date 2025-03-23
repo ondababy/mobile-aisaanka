@@ -7,16 +7,17 @@ import {
   TouchableOpacity,
   Dimensions,
   SafeAreaView,
-  StatusBar,
-  Image
+  StatusBar
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, usePathname } from "expo-router";
 import { Feather } from "@expo/vector-icons";
+import BottomNavigation from "../Components/BottomNavigation"; // Import the Bottom Navigation component
 
 const { width, height } = Dimensions.get("window");
 
 export default function AboutScreen() {
   const router = useRouter();
+  const currentPath = usePathname();
 
   const handleNavigation = (route) => {
     router.push(route);
@@ -202,7 +203,7 @@ export default function AboutScreen() {
                 <TouchableOpacity onPress={() => router.push('/Screen/Faq')}>
                   <Text style={styles.footerLink}>FAQ</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => router.push('/Screen/Service')}>
+                <TouchableOpacity onPress={() => router.push('/Screen/Services')}>
                   <Text style={styles.footerLink}>Services</Text>
                 </TouchableOpacity>
               </View>
@@ -228,6 +229,9 @@ export default function AboutScreen() {
           </View>
         </View>
       </ScrollView>
+      
+      {/* UPDATE: Using the BottomNavigation component correctly */}
+      <BottomNavigation activeTab="About" />
     </SafeAreaView>
   );
 }
@@ -239,6 +243,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
+    paddingBottom: 70, // Added padding for bottom navigation
   },
   
   // Introduction Section

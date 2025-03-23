@@ -44,7 +44,7 @@ const RootLayout = () => {
       <Stack.Screen name="Screen/History" options={{ headerShown: false }} />
       <Stack.Screen name="Screen/About" options={{ headerShown: false }} />
       <Stack.Screen name="Screen/Faq" options={{ headerShown: false }} />
-      <Stack.Screen name="Screen/Service" options={{ headerShown: false }} />
+      <Stack.Screen name="Screen/Services" options={{ headerShown: false }} />
     </Stack>
   );
 };
