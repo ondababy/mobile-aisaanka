@@ -11,8 +11,8 @@ import {
   Platform,
   Modal,
   Alert,
-  Image,
   ScrollView,
+  ToastAndroid,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
@@ -20,7 +20,6 @@ import { API_URL } from '@env';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 
 // Placeholder component for the Sidebar (Navigation menu in React Native)
-// In a real app, you would use a Drawer Navigator from react-navigation
 const SidebarPlaceholder = ({ navigation }) => {
   return null;
 };
@@ -40,14 +39,171 @@ const History = ({ navigation }) => {
   const [menuVisible, setMenuVisible] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [serverConfigModalVisible, setServerConfigModalVisible] = useState(false);
+  const [customApiUrl, setCustomApiUrl] = useState(API_URL || '');
+
+  // Save custom API URL to AsyncStorage
+  const saveCustomApiUrl = async (url) => {
+    try {
+      await AsyncStorage.setItem('customApiUrl', url);
+      console.log('Saved custom API URL:', url);
+      if (Platform.OS === 'android') {
+        ToastAndroid.show('Server URL updated', ToastAndroid.SHORT);
+      }
+      return true;
+    } catch (err) {
+      console.error('Error saving custom API URL:', err);
+      return false;
+    }
+  };
+
+  // Get custom API URL from AsyncStorage
+  const getCustomApiUrl = async () => {
+    try {
+      const url = await AsyncStorage.getItem('customApiUrl');
+      if (url) {
+        setCustomApiUrl(url);
+        console.log('Retrieved custom API URL:', url);
+        return url;
+      }
+      return API_URL;
+    } catch (err) {
+      console.error('Error getting custom API URL:', err);
+      return API_URL;
+    }
+  };
+
+  // Helper function to determine if we're using a local IP address
+  const isLocalIpAddress = (url) => {
+    if (!url) return false;
+    
+    try {
+      const urlObj = new URL(url);
+      const hostname = urlObj.hostname;
+      
+      return (
+        hostname.startsWith('192.168.') ||
+        hostname.startsWith('10.') ||
+        hostname.startsWith('172.16.') ||
+        hostname === 'localhost' ||
+        hostname === '127.0.0.1'
+      );
+    } catch (e) {
+      return false;
+    }
+  };
+
+  // Fetch user profile with better error handling
+  const fetchUserProfile = async (token) => {
+    setLoading(true);
+    setError(null);
+    
+    // Get custom API URL if one exists
+    const apiBaseUrl = await getCustomApiUrl();
+    
+    if (!apiBaseUrl) {
+      setError('API URL is not configured. Please set a server URL.');
+      setLoading(false);
+      return;
+    }
+    
+    try {
+      if (!token) {
+        throw new Error('Authentication token not found. Please log in again.');
+      }
+      
+      console.log('Using API URL:', apiBaseUrl);
+      
+      // Make the request with a timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+      
+      const profileUrl = `${apiBaseUrl}/auth/profile`;
+      console.log('Fetching profile from:', profileUrl);
+      
+      try {
+        const profileResponse = await fetch(profileUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        console.log('Profile response status:', profileResponse.status);
+        
+        if (!profileResponse.ok) {
+          const errorText = await profileResponse.text();
+          console.error('Profile error response:', errorText);
+          
+          if (profileResponse.status === 401) {
+            throw new Error('Your session has expired. Please log in again.');
+          } else {
+            throw new Error(`Server error: ${profileResponse.status} - ${errorText || 'No details provided'}`);
+          }
+        }
+        
+        const profileData = await profileResponse.json();
+        console.log('Profile data received:', profileData ? 'Data exists' : 'No data');
+        
+        setCurrentUser(profileData);
+        const userId = profileData._id;
+        
+        if (!userId) {
+          throw new Error('Could not determine user ID. Please log in again.');
+        }
+        
+        // Now fetch travel history with the user ID
+        await fetchTravelHistory(userId, token, apiBaseUrl);
+        
+      } catch (error) {
+        clearTimeout(timeoutId);
+        
+        if (error.name === 'AbortError') {
+          throw new Error('Server request timed out. Please try again or check server status.');
+        }
+        
+        throw error;
+      }
+      
+    } catch (error) {
+      console.error('Error loading user data:', error.message);
+      let errorMsg = error.message;
+      
+      // Make the error message more user-friendly based on the error
+      if (error.message.includes('Network request failed')) {
+        if (isLocalIpAddress(apiBaseUrl)) {
+          errorMsg = 'Cannot connect to the local server. Make sure the server is running and accessible on your network.';
+        } else {
+          errorMsg = 'Network request failed. Please check your internet connection and server status.';
+        }
+      }
+      
+      setError(errorMsg);
+      setLoading(false);
+    }
+  };
+
+  // Attempt to reconnect
+  const tryReconnect = async () => {
+    try {
+      const token = await AsyncStorage.getItem('userToken');
+      if (token) {
+        console.log('Attempting to reconnect...');
+        fetchUserProfile(token);
+      }
+    } catch (err) {
+      console.error('Error on reconnect attempt:', err);
+    }
+  };
 
   // Use useFocusEffect to refresh the data when screen comes into focus
   useFocusEffect(
     React.useCallback(() => {
       const fetchUserAndHistory = async () => {
-        setLoading(true);
-        setError(null); // Reset error state on each fetch attempt
-        
         try {
           // Get auth token
           const token = await AsyncStorage.getItem('userToken');
@@ -57,51 +213,10 @@ const History = ({ navigation }) => {
           
           console.log('Token retrieved:', token ? 'Token exists' : 'No token');
           
-          // Ensure API_URL is properly set
-          if (!API_URL) {
-            console.error('API_URL is not defined');
-            throw new Error('Server configuration error. Please restart the app.');
-          }
-          
-          console.log('Using API URL:', API_URL);
-          
-          // Get user profile from API
-          const profileUrl = `${API_URL}/auth/profile`;
-          console.log('Fetching profile from:', profileUrl);
-          
-          const profileResponse = await fetch(profileUrl, {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-          });
-          
-          console.log('Profile response status:', profileResponse.status);
-          
-          if (!profileResponse.ok) {
-            const errorText = await profileResponse.text();
-            console.error('Profile error response:', errorText);
-            throw new Error(`Failed to fetch user profile: ${profileResponse.status}`);
-          }
-          
-          const profileData = await profileResponse.json();
-          console.log('Profile data received:', profileData ? 'Data exists' : 'No data');
-          
-          setCurrentUser(profileData);
-          const userId = profileData._id;
-          
-          if (!userId) {
-            throw new Error('Could not determine user ID. Please log in again.');
-          }
-          
-          console.log('User ID:', userId);
-          
-          // Now fetch travel history with the user ID
-          await fetchTravelHistory(userId, token);
+          await fetchUserProfile(token);
           
         } catch (error) {
-          console.error('Error loading user data:', error.message);
+          console.error('Error in useFocusEffect:', error.message);
           setError(error.message);
           setLoading(false);
         }
@@ -115,7 +230,7 @@ const History = ({ navigation }) => {
     }, [])
   );
   
-  const fetchTravelHistory = async (userId, token) => {
+  const fetchTravelHistory = async (userId, token, apiBaseUrl) => {
     setLoading(true);
     try {
       if (!userId) {
@@ -126,63 +241,80 @@ const History = ({ navigation }) => {
         throw new Error('Authentication token not found');
       }
       
-      const apiUrl = `${API_URL}/user/travel-history/${userId}`;
+      const apiUrl = `${apiBaseUrl}/user/travel-history/${userId}`;
       console.log('Fetching travel history from:', apiUrl);
       
-      const response = await fetch(apiUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      console.log('Travel history response status:', response.status);
+      // Use timeout for this request as well
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
       
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Travel history error response:', errorText);
-        throw new Error(`Failed to fetch travel history: ${response.status} ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      console.log('Travel history data received:', data ? 'Data exists' : 'No data');
-      
-      if (!data || !Array.isArray(data.travelHistory)) {
-        console.warn('Travel history data format unexpected:', JSON.stringify(data).slice(0, 200));
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          signal: controller.signal
+        });
         
-        // Handle the case where the API might return data in a different format
-        // Try to extract travel history data from different possible structures
-        let extractedHistory = [];
+        clearTimeout(timeoutId);
         
-        if (data && typeof data === 'object') {
-          if (Array.isArray(data)) {
-            extractedHistory = data;
-          } else if (data.travelHistory) {
-            extractedHistory = Array.isArray(data.travelHistory) ? data.travelHistory : [data.travelHistory];
-          } else if (data.data && Array.isArray(data.data)) {
-            extractedHistory = data.data;
-          } else if (data.results && Array.isArray(data.results)) {
-            extractedHistory = data.results;
-          }
+        console.log('Travel history response status:', response.status);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Travel history error response:', errorText);
+          throw new Error(`Failed to fetch travel history: ${response.status} ${response.statusText}`);
         }
+
+        const data = await response.json();
+        console.log('Travel history data received:', data ? 'Data exists' : 'No data');
         
-        console.log('Extracted history length:', extractedHistory.length);
-        
-        if (extractedHistory.length === 0) {
-          setTravelHistory([]);
-          setFilteredHistory([]);
+        if (!data || !Array.isArray(data.travelHistory)) {
+          console.warn('Travel history data format unexpected:', JSON.stringify(data).slice(0, 200));
+          
+          // Handle the case where the API might return data in a different format
+          // Try to extract travel history data from different possible structures
+          let extractedHistory = [];
+          
+          if (data && typeof data === 'object') {
+            if (Array.isArray(data)) {
+              extractedHistory = data;
+            } else if (data.travelHistory) {
+              extractedHistory = Array.isArray(data.travelHistory) ? data.travelHistory : [data.travelHistory];
+            } else if (data.data && Array.isArray(data.data)) {
+              extractedHistory = data.data;
+            } else if (data.results && Array.isArray(data.results)) {
+              extractedHistory = data.results;
+            }
+          }
+          
+          console.log('Extracted history length:', extractedHistory.length);
+          
+          if (extractedHistory.length === 0) {
+            setTravelHistory([]);
+            setFilteredHistory([]);
+          } else {
+            // Use the extracted data
+            const formattedData = formatTravelData(extractedHistory);
+            setTravelHistory(formattedData);
+            setFilteredHistory(formattedData);
+          }
         } else {
-          // Use the extracted data
-          const formattedData = formatTravelData(extractedHistory);
+          // The API returned data in the expected format
+          const formattedData = formatTravelData(data.travelHistory);
           setTravelHistory(formattedData);
           setFilteredHistory(formattedData);
         }
-      } else {
-        // The API returned data in the expected format
-        const formattedData = formatTravelData(data.travelHistory);
-        setTravelHistory(formattedData);
-        setFilteredHistory(formattedData);
+      } catch (error) {
+        clearTimeout(timeoutId);
+        
+        if (error.name === 'AbortError') {
+          throw new Error('Server request timed out while fetching travel history.');
+        }
+        
+        throw error;
       }
     } catch (err) {
       console.error('Error fetching travel history:', err.message);
@@ -247,7 +379,9 @@ const History = ({ navigation }) => {
                 throw new Error('Authentication token not found');
               }
               
-              const response = await fetch(`${API_URL}/user/travel-history/${tripId}`, {
+              const apiBaseUrl = await getCustomApiUrl();
+              
+              const response = await fetch(`${apiBaseUrl}/user/travel-history/${tripId}`, {
                 method: 'DELETE',
                 headers: {
                   'Authorization': `Bearer ${token}`,
@@ -371,6 +505,7 @@ const History = ({ navigation }) => {
     });
   };
 
+  // Format dates and times
   const formatDate = (dateString) => {
     try {
       const date = new Date(dateString);
@@ -399,6 +534,22 @@ const History = ({ navigation }) => {
       return `${Math.floor(diffDays/365)} years ago`;
     } catch (e) {
       return "";
+    }
+  };
+
+  // Simple network connectivity test
+  const testConnectivity = async () => {
+    try {
+      // Attempt to fetch a small resource to test internet connectivity
+      const testResponse = await fetch('https://www.google.com', { 
+        method: 'HEAD',
+        // Short timeout to quickly determine connectivity
+        signal: AbortSignal.timeout(5000)
+      });
+      return testResponse.ok;
+    } catch (error) {
+      console.log('Connectivity test failed:', error);
+      return false;
     }
   };
 
@@ -498,42 +649,46 @@ const History = ({ navigation }) => {
         <View style={styles.errorContainer}>
           <Text style={styles.errorTitle}>Error Loading Travel History</Text>
           <Text style={styles.errorMessage}>{error}</Text>
+          
+          {/* For server connection issues, offer to configure server */}
+          {(error.includes('connect to the local server') || 
+            error.includes('Network request failed') || 
+            error.includes('Server request timed out')) && (
+            <TouchableOpacity 
+              style={[styles.actionButton, { backgroundColor: '#0b617e', marginBottom: 12 }]}
+              onPress={() => setServerConfigModalVisible(true)}
+            >
+              <Icon name="settings" size={18} color="#fff" style={{ marginRight: 8 }} />
+              <Text style={styles.actionButtonText}>Configure Server</Text>
+            </TouchableOpacity>
+          )}
+          
           <TouchableOpacity 
             style={styles.retryButton}
             onPress={async () => {
+              // Check connectivity before retry
+              const isConnected = await testConnectivity();
+              
+              if (!isConnected) {
+                Alert.alert(
+                  "No Internet Connection",
+                  "Please check your network settings and try again."
+                );
+                return;
+              }
+              
               const token = await AsyncStorage.getItem('userToken');
               if (currentUser?._id && token) {
-                fetchTravelHistory(currentUser._id, token);
+                const apiBaseUrl = await getCustomApiUrl();
+                fetchTravelHistory(currentUser._id, token, apiBaseUrl);
               } else {
                 // If we don't have user ID or token, we need to refetch everything
-                const fetchUserAndHistory = async () => {
-                  try {
-                    const token = await AsyncStorage.getItem('userToken');
-                    if (!token) {
-                      throw new Error('Authentication token not found. Please log in again.');
-                    }
-                    
-                    const profileResponse = await fetch(`${API_URL}/auth/profile`, {
-                      headers: {
-                        'Authorization': `Bearer ${token}`,
-                      },
-                    });
-                    
-                    if (!profileResponse.ok) {
-                      throw new Error('Failed to fetch user profile');
-                    }
-                    
-                    const profileData = await profileResponse.json();
-                    setCurrentUser(profileData);
-                    
-                    await fetchTravelHistory(profileData._id, token);
-                  } catch (error) {
-                    console.error('Error loading user data:', error);
-                    setError(error.message);
-                  }
-                };
-                
-                fetchUserAndHistory();
+                const token = await AsyncStorage.getItem('userToken');
+                if (token) {
+                  fetchUserProfile(token);
+                } else {
+                  setError('Your session has expired. Please log in again.');
+                }
               }
             }}
           >
@@ -599,6 +754,14 @@ const History = ({ navigation }) => {
         <Text style={styles.headerSubtitle}>
           View and manage your past travels and experiences
         </Text>
+        
+        {/* Add server settings button in header */}
+        <TouchableOpacity 
+          style={styles.serverConfigButton}
+          onPress={() => setServerConfigModalVisible(true)}
+        >
+          <Icon name="settings" size={20} color="#0b617e" />
+        </TouchableOpacity>
       </View>
 
       {/* Search and filter section */}
@@ -687,6 +850,7 @@ const History = ({ navigation }) => {
               </TouchableOpacity>
             </View>
             
+            {/* Filter content remains the same */}
             <View style={styles.filterSection}>
               <Text style={styles.filterLabel}>Rating</Text>
               <View style={styles.filterOptions}>
@@ -795,6 +959,110 @@ const History = ({ navigation }) => {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Server Configuration Modal */}
+      <Modal
+        visible={serverConfigModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setServerConfigModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Server Configuration</Text>
+              <TouchableOpacity onPress={() => setServerConfigModalVisible(false)}>
+                <Icon name="close" size={24} color="#0b617e" />
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.serverConfigSection}>
+              <Text style={styles.configLabel}>API Server URL</Text>
+              <Text style={styles.configHelp}>
+                Enter the full URL of your backend server including http:// or https://
+              </Text>
+              
+              <TextInput
+                style={styles.serverUrlInput}
+                value={customApiUrl}
+                onChangeText={setCustomApiUrl}
+                placeholder="e.g. http://192.168.1.100:5000/api"
+                placeholderTextColor="#94A3B8"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              
+              {isLocalIpAddress(customApiUrl) && (
+                <View style={styles.warningBox}>
+                  <Icon name="warning" size={20} color="#f59e0b" style={{ marginRight: 8 }} />
+                  <Text style={styles.warningText}>
+                    You're using a local IP address. Make sure your device is on the same network as the server.
+                  </Text>
+                </View>
+              )}
+              
+              <View style={styles.buttonRow}>
+                <TouchableOpacity 
+                  style={[styles.configButton, { backgroundColor: '#64748B' }]}
+                  onPress={() => {
+                    setCustomApiUrl(API_URL || '');
+                    setServerConfigModalVisible(false);
+                  }}
+                >
+                  <Text style={styles.configButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.configButton, { backgroundColor: '#0b617e' }]}
+                  onPress={async () => {
+                    // Validate URL format
+                    try {
+                      new URL(customApiUrl);
+                      
+                      const saved = await saveCustomApiUrl(customApiUrl);
+                      if (saved) {
+                        setServerConfigModalVisible(false);
+                        
+                        // Try to reconnect with the new URL
+                        const token = await AsyncStorage.getItem('userToken');
+                        if (token) {
+                          fetchUserProfile(token);
+                        }
+                      }
+                    } catch (e) {
+                      Alert.alert(
+                        "Invalid URL",
+                        "Please enter a valid URL including http:// or https://"
+                      );
+                    }
+                  }}
+                >
+                  <Text style={styles.configButtonText}>Save & Connect</Text>
+                </TouchableOpacity>
+              </View>
+              
+              <TouchableOpacity 
+                style={styles.troubleshootButton}
+                onPress={() => {
+                  // This would ideally open a network troubleshooting guide
+                  Alert.alert(
+                    "Troubleshooting Tips",
+                    "1. Make sure your server is running\n" +
+                    "2. If using a local IP, ensure your device is on the same network\n" +
+                    "3. Try using your device's IP address instead of 'localhost'\n" +
+                    "4. Check if your server port is open and accessible\n" +
+                    "5. Verify that you included the full path (e.g., /api at the end)",
+                    [{ text: "OK" }]
+                  );
+                }}
+              >
+                <Icon name="help-outline" size={16} color="#0b617e" style={{ marginRight: 4 }} />
+                <Text style={styles.troubleshootText}>Troubleshooting Help</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -812,6 +1080,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#0b617e',
     borderBottomLeftRadius: 4,
     borderBottomRightRadius: 4,
+    position: 'relative',
   },
   headerTitle: {
     fontSize: 28,
@@ -823,6 +1092,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#64748B',
     opacity: 0.85,
+    width: '90%',
+  },
+  serverConfigButton: {
+    position: 'absolute',
+    right: 20,
+    bottom: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(11, 97, 126, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   searchFilterContainer: {
     flexDirection: 'row',
@@ -946,6 +1227,19 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   retryButtonText: {
+    color: '#FFF',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    elevation: 2,
+  },
+  actionButtonText: {
     color: '#FFF',
     fontWeight: '600',
     fontSize: 16,
@@ -1210,6 +1504,73 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  // Server configuration modal styles
+  serverConfigSection: {
+    marginTop: 16,
+  },
+  configLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#334155',
+    marginBottom: 8,
+  },
+  configHelp: {
+    fontSize: 14,
+    color: '#64748B',
+    marginBottom: 16,
+  },
+  serverUrlInput: {
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#334155',
+    marginBottom: 16,
+  },
+  warningBox: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(245, 158, 11, 0.1)',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 20,
+    alignItems: 'flex-start',
+  },
+  warningText: {
+    fontSize: 14,
+    color: '#92400E',
+    flex: 1,
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  configButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginHorizontal: 6,
+  },
+  configButtonText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  troubleshootButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 16,
+    padding: 8,
+  },
+  troubleshootText: {
+    fontSize: 14,
+    color: '#0b617e',
+    fontWeight: '500',
   },
 });
 
