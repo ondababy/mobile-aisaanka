@@ -37,8 +37,10 @@ const RootLayout = () => {
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="Auth/Login" options={{ headerShown: false }} />
       <Stack.Screen name="Auth/Register" options={{ headerShown: false }} />
+      <Stack.Screen name="Auth/OTPVerification" options={{ headerShown: false }} />
       <Stack.Screen name="Screen/Main" options={{ headerShown: false }} />
       <Stack.Screen name="Screen/Review" options={{ headerShown: false }} />
+      <Stack.Screen name="Screen/Map" options={{ headerShown: false }} />
       <Stack.Screen name="Screen/Profile" options={{ headerShown: false }} />
       <Stack.Screen name="Screen/Dashboard" options={{ headerShown: false }} />
       <Stack.Screen name="Screen/Home" options={{ headerShown: false }} />
@@ -46,6 +48,7 @@ const RootLayout = () => {
       <Stack.Screen name="Screen/About" options={{ headerShown: false }} />
       <Stack.Screen name="Screen/Faq" options={{ headerShown: false }} />
       <Stack.Screen name="Screen/Services" options={{ headerShown: false }} />
+
     </Stack>
   );
 };

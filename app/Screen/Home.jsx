@@ -1,33 +1,52 @@
-import 'react-native-get-random-values';
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
-  ActivityIndicator,
-  Dimensions,
-  Platform,
-  StatusBar,
-  Alert,
-  KeyboardAvoidingView,
+  TouchableOpacity,
   ScrollView,
-  Image
+  Alert,
+  Dimensions,
+  ActivityIndicator,
+  Animated,
+  Platform,
+  Keyboard,
+  KeyboardAvoidingView,
+  TouchableWithoutFeedback
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { 
+  Provider as PaperProvider, 
+  Button, 
+  Surface, 
+  Card, 
+  Title, 
+  Paragraph, 
+  Avatar, 
+  Chip, 
+  Divider, 
+  Snackbar, 
+  IconButton, 
+  configureFonts,
+  DefaultTheme,
+  Badge,
+  Portal, 
+  Modal,
+  Searchbar,
+  Appbar
+} from 'react-native-paper';
+import * as Location from 'expo-location';
 import { GooglePlacesAutocomplete } from 'react-native-google-places-autocomplete';
-
+import { router } from 'expo-router';
+import { createStackNavigator } from '@react-navigation/stack';
+import { createDrawerNavigator } from '@react-navigation/drawer';
+import Icon from 'react-native-vector-icons/MaterialIcons';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Icon from 'react-native-vector-icons/FontAwesome';
-import FontAwesome5 from 'react-native-vector-icons/FontAwesome5';
-import { LinearGradient } from 'expo-linear-gradient';
-import * as Location from 'expo-location';
-const GOOGLE_MAPS_API_KEY = 'AIzaSyA97iQhpD5yGyKeHxmPOkGMTM7cqmGcuS8'; // Replace with your actual key
 
-// Metro Manila bounds for restricting searches
+const GOOGLE_MAPS_API_KEY = "AIzaSyA97iQhpD5yGyKeHxmPOkGMTM7cqmGcuS8";
+
+// Define Metro Manila bounds
 const metroManilaBounds = {
   north: 15.0,
   south: 14.0,
@@ -35,868 +54,748 @@ const metroManilaBounds = {
   east: 121.5,
 };
 
-// Enhanced color palette (matching web version)
-const colors = {
-  primary: "#054e6f",
-  primaryLight: "#0b617e",
-  primaryDark: "#033d52",
-  secondary: "#4FC3F7",
-  accent: "#e53935",
-  accentLight: "#ff6f60",
-  background: "#f8fafc",
-  cardBackground: "#ffffff",
-  textPrimary: "#2c3e50",
-  textSecondary: "#5d7285",
-  border: "#e0e0e0",
-  success: "#4caf50",
-  warning: "#ff9800",
-  info: "#2196f3",
-  grey: "#f5f7fa",
+// Create theme based on React Native Paper
+const theme = {
+  ...DefaultTheme,
+  colors: {
+    ...DefaultTheme.colors,
+    primary: '#0b617e',
+    primaryLight: '#3d8195',
+    primaryDark: '#064458',
+    accent: '#f9a825',
+    accentLight: '#fbc02d',
+    accentDark: '#f57f17',
+    background: '#f5f7f9',
+    surface: '#ffffff',
+    error: '#d32f2f',
+    text: '#263238',
+    disabled: '#455a64',
+    placeholder: '#546e7a',
+    backdrop: 'rgba(0, 0, 0, 0.5)',
+    notification: '#f9a825',
+  },
+  fonts: configureFonts({
+    default: {
+      regular: {
+        fontFamily: 'Poppins-Regular',
+        fontWeight: 'normal',
+      },
+      medium: {
+        fontFamily: 'Poppins-Medium',
+        fontWeight: '500',
+      },
+      light: {
+        fontFamily: 'Poppins-Light',
+        fontWeight: '300',
+      },
+      thin: {
+        fontFamily: 'Poppins-Thin',
+        fontWeight: '100',
+      },
+    },
+  }),
+  roundness: 12,
 };
 
-const { width, height } = Dimensions.get('window');
-const isSmallDevice = width < 380;
+// Custom StepIndicator component to replace Stepper
+const StepIndicator = ({ steps, currentStep }) => {
+  return (
+    <View style={styles.stepContainer}>
+      {steps.map((label, index) => (
+        <View key={index} style={styles.stepWrapper}>
+          <View 
+            style={[
+              styles.stepCircle, 
+              currentStep >= index ? styles.activeStep : styles.inactiveStep
+            ]}
+          >
+            {currentStep > index ? (
+              <Icon name="check" size={16} color="#ffffff" />
+            ) : (
+              <Text style={currentStep >= index ? styles.activeStepText : styles.inactiveStepText}>
+                {index + 1}
+              </Text>
+            )}
+          </View>
+          <Text style={[
+            styles.stepLabel,
+            currentStep >= index ? styles.activeStepLabel : styles.inactiveStepLabel
+          ]}>
+            {label}
+          </Text>
+          {index < steps.length - 1 && (
+            <View 
+              style={[
+                styles.stepConnector, 
+                currentStep > index ? styles.activeConnector : styles.inactiveConnector
+              ]} 
+            />
+          )}
+        </View>
+      ))}
+    </View>
+  );
+};
 
-function Home() {
+// Custom LocationCard component
+const LocationCard = ({ 
+  title, 
+  icon, 
+  address, 
+  placeholder, 
+  onPress, 
+  isLoading,
+  buttonText 
+}) => {
+  return (
+    <Surface style={styles.locationCard}>
+      <View style={styles.locationTitleContainer}>
+        <Icon name={icon} size={22} color={theme.colors.primary} style={styles.locationIcon} />
+        <Text style={styles.locationTitle}>{title}</Text>
+      </View>
+      <View style={styles.locationContent}>
+        <View style={styles.addressContainer}>
+          <Text style={address ? styles.addressText : styles.placeholderText}>
+            {address || placeholder}
+          </Text>
+        </View>
+        <Button
+          mode="contained"
+          icon={({size, color}) => (
+            <Icon name={icon === 'place' ? 'search' : 'my-location'} size={size} color={color} />
+          )}
+          loading={isLoading}
+          onPress={onPress}
+          style={styles.locationButton}
+          labelStyle={styles.buttonLabel}
+        >
+          {buttonText}
+        </Button>
+      </View>
+    </Surface>
+  );
+};
+
+// Main Home component
+const Home = () => {
   const [currentAddress, setCurrentAddress] = useState("");
   const [currentCoordinates, setCurrentCoordinates] = useState(null);
   const [destination, setDestination] = useState("");
   const [destinationCoordinates, setDestinationCoordinates] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [pageLoaded, setPageLoaded] = useState(false);
-  const [selectedTransport, setSelectedTransport] = useState("all");
-  const destinationRef = useRef(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [activeStep, setActiveStep] = useState(0);
+  const [locationError, setLocationError] = useState(null);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [snackbarVisible, setSnackbarVisible] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState("");
+  const [placesAutocompleteVisible, setPlacesAutocompleteVisible] = useState(false);
   
-  const navigation = useNavigation();
-  const route = useRoute();
+  const googlePlacesRef = useRef(null);
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  
+  // Screen dimensions for responsive design
+  const windowWidth = Dimensions.get('window').width;
+  const isSmallScreen = windowWidth < 375;
 
+  // Fade in animation
   useEffect(() => {
-    // Set page loaded state with a small delay for animations
-    setTimeout(() => {
-      setPageLoaded(true);
-    }, 100);
-    
-    // Check if user was previously inactive (from route params)
-    if (route.params?.wasInactive) {
-      Alert.alert(
-        "Welcome Back!",
-        "Your account is now active again.",
-        [{ text: "OK" }]
-      );
+    Animated.timing(fadeAnim, {
+      toValue: 1,
+      duration: 800,
+      useNativeDriver: true,
+    }).start();
+  }, [fadeAnim]);
+
+  // Update step based on current state
+  useEffect(() => {
+    if (currentCoordinates && destinationCoordinates) {
+      setActiveStep(2);
+    } else if (currentCoordinates) {
+      setActiveStep(1);
+    } else {
+      setActiveStep(0);
+    }
+  }, [currentCoordinates, destinationCoordinates]);
+
+  // Request location permission using Expo Location
+  const requestLocationPermission = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      return status === 'granted';
+    } catch (err) {
+      console.warn(err);
+      return false;
+    }
+  };
+
+  // Get current location
+  const getCurrentLocation = async () => {
+    const hasPermission = await requestLocationPermission();
+    if (!hasPermission) {
+      setLocationError("Location permission denied. Please enable it in app settings.");
+      return;
     }
     
-    // Auto-get location on app load for better UX
-    getCurrentLocation();
-  }, [route.params]);
-
-  const getCurrentLocation = async () => {
-    setLoading(true);
-  
+    setIsLoading(true);
+    setLocationLoading(true);
+    setLocationError(null);
+    
     try {
-      // Ask for permission to use location
-      const { status } = await Location.requestForegroundPermissionsAsync();
+      // Add a small delay before requesting location to ensure native bridge is ready
+      await new Promise(resolve => setTimeout(resolve, 500));
       
-      if (status !== 'granted') {
-        Alert.alert(
-          'Permission Denied',
-          'Please allow access to your location to use this feature.',
-          [{ text: 'OK' }]
-        );
-        setCurrentAddress('Location permission denied');
-        setLoading(false);
-        return;
-      }
-  
-      // Get current position
-      const location = await Location.getCurrentPositionAsync({ 
-        accuracy: Location.Accuracy.High 
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Highest,
+        maximumAge: 10000
       });
       
       const { latitude, longitude } = location.coords;
-      
-      // Set coordinates immediately
       setCurrentCoordinates({ lat: latitude, lng: longitude });
-  
+      
+      // Use Google's Geocoding API to get address from coordinates
       try {
-        // Use Google Geocoding API to get address from coordinates
         const response = await axios.get(
           `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${GOOGLE_MAPS_API_KEY}`
         );
         
-        if (response.data.status === 'OK' && response.data.results[0]) {
+        setIsLoading(false);
+        setLocationLoading(false);
+        
+        if (response.data.results && response.data.results.length > 0) {
           setCurrentAddress(response.data.results[0].formatted_address);
+          showSnackbar("Location found successfully!");
         } else {
-          setCurrentAddress('Location not found');
-          console.error('Geocoding error:', response.data.status);
+          setCurrentAddress("Location not found");
+          setLocationError("Unable to get your address. Please try again.");
         }
       } catch (error) {
-        console.error('Error with geocoding:', error);
-        setCurrentAddress('Error finding address');
+        setIsLoading(false);
+        setLocationLoading(false);
+        setCurrentAddress("Failed to get address");
+        setLocationError("Error getting address from coordinates.");
       }
     } catch (error) {
-      console.error('Geolocation error:', error);
-      Alert.alert(
-        'Location Error',
-        `Unable to get your location: ${error.message}`,
-        [{ text: 'OK' }]
-      );
-      setCurrentAddress('Unable to fetch location');
-    } finally {
-      setLoading(false);
+      setIsLoading(false);
+      setLocationLoading(false);
+      setCurrentAddress("Unable to fetch location");
+      
+      console.error("Location error:", error);
+      
+      let errorMessage = "Location error. Please try again.";
+      if (error.message) {
+        if (error.message.includes("denied")) {
+          errorMessage = "Permission denied. Please enable location services.";
+        } else if (error.message.includes("unavailable")) {
+          errorMessage = "Position unavailable. Try again later.";
+        } else if (error.message.includes("timeout")) {
+          errorMessage = "Location request timed out. Please try again.";
+        } else if (error.message.includes("NOBRIDGE")) {
+          errorMessage = "Location services not initialized. Please wait a moment and try again.";
+        }
+      }
+      
+      setLocationError(errorMessage);
     }
   };
 
+const goToMap = async () => {
+  if (!currentCoordinates || !destinationCoordinates) {
+    setLocationError("Please select both starting point and destination.");
+    return;
+  }
+
+  // Save destination to history before navigating
+  try {
+    await saveDestination();
+    showSnackbar("Calculating your route...");
+    
+    setTimeout(() => {
+      router.push({
+        pathname: '/Screen/Map',
+        params: {
+          srcLat: currentCoordinates.lat,
+          srcLng: currentCoordinates.lng,
+          destLat: destinationCoordinates.lat,
+          destLng: destinationCoordinates.lng
+        }
+      });
+    }, 1000); // Small delay for user feedback
+  } catch (error) {
+    console.error("Failed to save destination, but continuing navigation", error);
+    // Navigate anyway even if saving fails
+    router.push({
+      pathname: '/Screen/Map',
+      params: {
+        srcLat: currentCoordinates.lat,
+        srcLng: currentCoordinates.lng,
+        destLat: destinationCoordinates.lat,
+        destLng: destinationCoordinates.lng
+      }
+    });
+  }
+};
+
+  // Save destination to history
   const saveDestination = async () => {
     try {
-      const token = await AsyncStorage.getItem('token');
-      
-      if (!token) {
-        console.log('User not logged in - skipping destination save');
-        return;
+      if (!destination) {
+        return false;
       }
       
-      const API_URL = 'YOUR_API_URL'; // Replace with your actual API URL
-      await axios.post(
-        `${API_URL}/place/savePlace`,
+      // Get token from AsyncStorage
+      const token = await AsyncStorage.getItem('token');
+      if (!token) {
+        console.log("User not logged in, skipping save destination");
+        return false;
+      }
+      
+      console.log("Saving destination:", {
+        place: destination,
+        coordinates: destinationCoordinates,
+        time: Date.now()
+      });
+      
+      // Make API call to save the place with correct field names
+      const apiUrl = Platform.OS === 'ios' 
+        ? 'YOUR_IOS_API_URL' // Replace with your actual API URL
+        : 'YOUR_ANDROID_API_URL'; // Replace with your actual API URL
+      
+      const response = await axios.post(
+        `${apiUrl}/place/savePlace`, 
         {
-          destination,
-          time: new Date().toISOString(),
+          place: destination,
+          destination: destination,
+          coordinates: destinationCoordinates,
+          time: Date.now()
         },
         {
           headers: {
-            Authorization: `Bearer ${token}`,
-          },
+            Authorization: `Bearer ${token}`
+          }
         }
       );
+      
+      console.log("Destination saved successfully:", response.data);
+      return true;
     } catch (error) {
-      console.error('Error saving destination:', error.response?.data || error.message);
+      console.error("Error saving destination:", error.response?.data || error.message);
+      return false;
     }
   };
   
-  const goToMap = async () => {
-    if (!currentCoordinates || !destinationCoordinates) {
-      Alert.alert(
-        'Missing Information',
-        'Please select both a starting point and destination.',
-        [{ text: 'OK' }]
-      );
-      return;
-    }
-  
-    try {
-      await saveDestination();
-    } catch (error) {
-      console.log('Failed to save destination, but continuing to map');
-    }
-  
-    navigation.navigate('Map', {
-      srcLat: currentCoordinates.lat,
-      srcLng: currentCoordinates.lng,
-      destLat: destinationCoordinates.lat,
-      destLng: destinationCoordinates.lng,
-      transportMode: selectedTransport
-    });
+  // Show snackbar with message
+  const showSnackbar = (message) => {
+    setSnackbarMessage(message);
+    setSnackbarVisible(true);
   };
 
-  // Transport mode chips component
-  const TransportChip = ({ label, iconName, mode, isFontAwesome5 = false }) => (
-    <TouchableOpacity
-      style={[
-        styles.chip,
-        selectedTransport === mode && styles.chipSelected
-      ]}
-      activeOpacity={0.7}
-      onPress={() => setSelectedTransport(mode)}
-    >
-      {isFontAwesome5 ? (
-        <FontAwesome5 
-          name={iconName} 
-          size={16} 
-          color={selectedTransport === mode ? "#fff" : "rgba(255,255,255,0.9)"} 
-        />
-      ) : (
-        <Icon 
-          name={iconName} 
-          size={16} 
-          color={selectedTransport === mode ? "#fff" : "rgba(255,255,255,0.9)"} 
-        />
-      )}
-      <Text 
-        style={[
-          styles.chipText,
-          selectedTransport === mode && styles.chipTextSelected
-        ]}
-      >
-        {label}
-      </Text>
-    </TouchableOpacity>
-  );
-
-  // Feature card component
-  const FeatureCard = ({ icon, title, description, useFA5 = false }) => {
-    return (
-      <View style={styles.featureCard}>
-        <View style={styles.featureIconContainer}>
-          {useFA5 ? 
-            <FontAwesome5 name={icon} size={28} color={colors.primaryLight} /> :
-            <Icon name={icon} size={28} color={colors.primaryLight} />
-          }
-        </View>
-        <Text style={styles.featureTitle}>{title}</Text>
-        <Text style={styles.featureDescription}>{description}</Text>
-      </View>
-    );
+  // Steps for the progress indicator
+  const steps = [
+    'Set your location', 
+    'Choose destination', 
+    'View route'
+  ];
+  
+  // Handle when user selects a place from Google Places Autocomplete
+  const handlePlaceSelect = (data, details = null) => {
+    if (details) {
+      setDestination(details.formatted_address || data.description);
+      setDestinationCoordinates({
+        lat: details.geometry.location.lat,
+        lng: details.geometry.location.lng,
+      });
+      showSnackbar("Destination selected!");
+      
+      // Dismiss keyboard after selection
+      Keyboard.dismiss();
+    }
   };
 
+  // Main render
   return (
-    <SafeAreaView style={styles.safeContainer}>
-      <StatusBar barStyle="light-content" backgroundColor={colors.primaryDark} />
-      <View style={styles.appContainer}>
-        <KeyboardAvoidingView 
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-          style={{flex: 1}}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
-        >
-          <ScrollView 
-            style={styles.scrollView}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.scrollContent}
+    <PaperProvider theme={theme}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.container}
+      >
+        <View style={styles.mainContainer}>
+          {/* Card Section (This will not scroll to avoid virtualized list nesting issues) */}
+          <Animated.View 
+            style={[styles.contentContainer, { opacity: fadeAnim }]}
+            keyboardShouldPersistTaps="handled"
           >
-            {/* Hero Section */}
-            <View style={styles.heroSection}>
-              <LinearGradient
-                colors={[colors.primaryDark, colors.primary]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.heroGradient}
-              >
-                <View style={styles.heroContent}>
-                  <Text style={styles.heroTitle}>
-                    <Text style={{ color: colors.secondary }}>AI</Text>SaanKa
-                  </Text>
-                  <Text style={styles.heroSubtitle}>
-                    Your intelligent commute assistant for navigating Metro Manila with ease
-                  </Text>
-
-                  <View style={styles.chipsContainer}>
-                    <TransportChip label="All" iconName="exchange" mode="all" />
-                    <TransportChip label="Jeepney" iconName="bus" mode="jeepney" />
-                    <TransportChip label="Bus" iconName="bus" mode="bus" />
-                    <TransportChip label="Train" iconName="subway" mode="train" />
-                    <TransportChip label="Tricycle" iconName="walking" mode="tricycle" isFontAwesome5={true} />
-                  </View>
+            <Card style={styles.card}>
+              <Card.Content style={styles.cardContent}>
+                <View style={styles.headerContainer}>
+                  <Avatar.Icon 
+                    size={60} 
+                    icon="map-marker-path" 
+                    style={styles.avatar}
+                    color="#ffffff"
+                  />
+                  
+                  <Title style={styles.title}>
+                    Plan Your Perfect Journey
+                  </Title>
+                  
+                  <Paragraph style={styles.subtitle}>
+                    Find the optimal route to your destination with real-time traffic updates
+                  </Paragraph>
+                  
+                  <StepIndicator 
+                    steps={steps} 
+                    currentStep={activeStep} 
+                  />
                 </View>
-              </LinearGradient>
-            </View>
-
-            {/* Route Form Card */}
-            <View style={styles.routeFormContainer}>
-              <Text style={styles.sectionTitle}>Find Your Route</Text>
-
-              {/* Starting Point */}
-              <View style={styles.locationSection}>
-                <View style={styles.locationHeader}>
-                  <View style={[styles.locationMarker, { backgroundColor: colors.primaryLight }]}>
-                    <Text style={styles.locationMarkerText}>A</Text>
-                  </View>
-                  <Text style={styles.locationTitle}>Starting Point</Text>
-                </View>
-
-                <View style={styles.inputContainer}>
-                  <View style={styles.inputWrapper}>
-                    <Icon name="map-marker" size={20} color={colors.primaryLight} style={styles.inputIcon} />
-                    <TextInput
-                      style={styles.input}
-                      value={currentAddress}
-                      placeholder="Your current location"
-                      editable={false}
-                    />
-                  </View>
-                  <TouchableOpacity
-                    style={styles.locationButton}
-                    onPress={getCurrentLocation}
-                    activeOpacity={0.7}
-                  >
-                    {loading ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <Icon name="location-arrow" size={20} color="#fff" />
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {/* Connection line between points */}
-              <View style={styles.connectionLineContainer}>
-                <View style={styles.connectionLine} />
-              </View>
-
-              {/* Destination */}
-              <View style={styles.locationSection}>
-                <View style={styles.locationHeader}>
-                  <View style={[styles.locationMarker, { backgroundColor: colors.accent }]}>
-                    <Text style={styles.locationMarkerText}>B</Text>
-                  </View>
-                  <Text style={styles.locationTitle}>Destination</Text>
-                </View>
-
-                <View style={styles.googlePlacesContainer}>
-                  <View style={styles.destinationInputWrapper}>
-                    <Icon name="map-pin" size={20} color={colors.accent} style={styles.inputIcon} />
-                    <View style={styles.customInputContainer}>
-                      <TextInput
-                        style={styles.destinationInput}
-                        placeholder="Search for your destination"
-                        value={destination}
-                        onFocus={() => {
-                          // When input is focused, navigate to a separate search screen
-                          navigation.navigate('DestinationSearch', {
-                            onSelect: (place, coords) => {
-                              setDestination(place);
-                              setDestinationCoordinates(coords);
-                            },
-                            bounds: metroManilaBounds,
-                            apiKey: GOOGLE_MAPS_API_KEY
-                          });
-                        }}
-                      />
+                
+                {/* Location Error Alert */}
+                {locationError && (
+                  <Surface style={styles.errorContainer}>
+                    <View style={styles.errorContent}>
+                      <Icon name="error-outline" size={24} color={theme.colors.error} />
+                      <Text style={styles.errorText}>{locationError}</Text>
                     </View>
-                  </View>
+                    <IconButton
+                      icon="close"
+                      size={20}
+                      onPress={() => setLocationError(null)}
+                    />
+                  </Surface>
+                )}
+                
+                {/* Current Location Section */}
+                <View style={styles.sectionContainer}>
+                  <LocationCard
+                    title="Your Location"
+                    icon="my-location"
+                    address={currentAddress}
+                    placeholder="Click button to get your current location"
+                    onPress={getCurrentLocation}
+                    isLoading={locationLoading}
+                    buttonText="Get My Location"
+                  />
                 </View>
-              </View>
-
-              {/* Action Button */}
-              <View style={styles.actionButtonContainer}>
-                <TouchableOpacity
-                  style={[
-                    styles.actionButton,
-                    (!currentCoordinates || !destinationCoordinates) && styles.actionButtonDisabled,
-                  ]}
-                  onPress={goToMap}
-                  disabled={!currentCoordinates || !destinationCoordinates}
-                  activeOpacity={0.8}
-                >
-                  <LinearGradient
-                    colors={[colors.primary, colors.primaryLight]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.actionButtonGradient}
+                
+                {/* Destination Section */}
+                <View style={styles.sectionContainer}>
+                  <View style={styles.locationTitleContainer}>
+                    <Icon name="place" size={22} color={theme.colors.primary} style={styles.locationIcon} />
+                    <Text style={styles.locationTitle}>Your Destination</Text>
+                  </View>
+                  
+                  <Surface style={styles.destinationContainer}>
+                    {/* We need to handle the GooglePlacesAutocomplete properly so it doesn't nest virtualized lists */}
+                    <GooglePlacesAutocomplete
+                      ref={googlePlacesRef}
+                      placeholder="Enter your destination"
+                      onPress={handlePlaceSelect}
+                      fetchDetails={true}
+                      query={{
+                        key: GOOGLE_MAPS_API_KEY,
+                        language: 'en',
+                        components: 'country:ph',
+                      }}
+                      styles={{
+                        container: {
+                          flex: 0,
+                        },
+                        textInputContainer: {
+                          borderRadius: theme.roundness,
+                          backgroundColor: 'transparent',
+                        },
+                        textInput: {
+                          height: 50,
+                          borderRadius: theme.roundness,
+                          backgroundColor: '#fff',
+                          borderWidth: 1,
+                          borderColor: '#e0e0e0',
+                          fontSize: 16,
+                          paddingHorizontal: 15,
+                        },
+                        predefinedPlacesDescription: {
+                          color: theme.colors.primary,
+                        },
+                        listView: {
+                          borderRadius: theme.roundness,
+                          overflow: 'hidden',
+                          position: 'absolute',
+                          top: 50, // Height of the input
+                          left: 0,
+                          right: 0,
+                          zIndex: 10,
+                          backgroundColor: 'white',
+                          borderWidth: 1,
+                          borderColor: '#e0e0e0',
+                        },
+                        row: {
+                          backgroundColor: '#FFFFFF',
+                          padding: 13,
+                        },
+                      }}
+                      onFail={(error) => console.error(error)}
+                      enablePoweredByContainer={false}
+                      // This is important - make the list display properly
+                      keyboardShouldPersistTaps="handled"
+                      listViewDisplayed={undefined}  // Let the component decide when to show the dropdown
+                      renderRightButton={() => 
+                        destination ? (
+                          <TouchableOpacity 
+                            onPress={() => {
+                              setDestination("");
+                              setDestinationCoordinates(null);
+                              googlePlacesRef.current?.setAddressText("");
+                            }}
+                            style={styles.clearButton}
+                          >
+                            <Icon name="close" size={20} color="#757575" />
+                          </TouchableOpacity>
+                        ) : null
+                      }
+                    />
+                  </Surface>
+                </View>
+                
+                {/* Navigate Button */}
+                <View style={styles.buttonContainer}>
+                  <Button
+                    mode="contained"
+                    icon={({size, color}) => (
+                      <Icon name="directions" size={size} color={color} />
+                    )}
+                    onPress={goToMap}
+                    disabled={!currentCoordinates || !destinationCoordinates || isLoading}
+                    style={[styles.navigateButton, { backgroundColor: theme.colors.accent }]}
+                    labelStyle={styles.navigateButtonLabel}
+                    contentStyle={styles.navigateButtonContent}
                   >
-                    <FontAwesome5 name="route" size={20} color="white" style={styles.actionButtonIcon} />
-                    <Text style={styles.actionButtonText}>View Route Options</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Features Section */}
-            <View style={styles.featuresSection}>
-              <View style={styles.featuresTitleContainer}>
-                <Text style={styles.featuresSectionTitle}>Why Choose AISaanKa</Text>
-                <View style={styles.titleUnderline} />
-              </View>
-
-              <View style={styles.featuresGrid}>
-                <FeatureCard
-                  icon="route"
-                  title="Multi-Modal Routing"
-                  description="Find the best combination of jeepneys, buses, trains, and other transport options for your journey"
-                  useFA5={true}
-                />
-                <FeatureCard
-                  icon="clock-o"
-                  title="Real-Time Traffic"
-                  description="Get accurate ETAs with live traffic conditions and transit delays to better plan your trips"
-                />
-                <FeatureCard
-                  icon="map-marker"
-                  title="Local Navigation"
-                  description="Directions specifically optimized for Metro Manila's unique transportation network"
-                />
-                <FeatureCard
-                  icon="mobile"
-                  title="Mobile Friendly"
-                  description="Access your routes and directions on any device, anywhere you go in the city"
-                />
-              </View>
-            </View>
-            
-            {/* Testimonials Section */}
-            <View style={styles.testimonialsSection}>
-              <Text style={styles.testimonialsSectionTitle}>What Users Say</Text>
-              <View style={styles.testimonialCard}>
-                <View style={styles.testimonialHeader}>
-                  <View style={styles.testimonialAvatar}>
-                    <Icon name="user" size={24} color={colors.primaryLight} />
-                  </View>
-                  <View>
-                    <Text style={styles.testimonialName}>Juan Dela Cruz</Text>
-                    <Text style={styles.testimonialLocation}>Makati City</Text>
-                  </View>
-                  <View style={styles.testimonialRating}>
-                    <Icon name="star" size={14} color="#FFD700" />
-                    <Icon name="star" size={14} color="#FFD700" />
-                    <Icon name="star" size={14} color="#FFD700" />
-                    <Icon name="star" size={14} color="#FFD700" />
-                    <Icon name="star" size={14} color="#FFD700" />
-                  </View>
+                    Find My Route
+                  </Button>
                 </View>
-                <Text style={styles.testimonialText}>
-                  "This app has completely changed my daily commute. The multi-modal routes are spot on and I've saved so much time!"
-                </Text>
-              </View>
-            </View>
-            
-            {/* Call To Action */}
-            <View style={styles.ctaSection}>
-              <LinearGradient
-                colors={[colors.primaryLight, colors.primary]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.ctaGradient}
-              >
-                <Text style={styles.ctaTitle}>Ready to Transform Your Commute?</Text>
-                <Text style={styles.ctaSubtitle}>
-                  Plan your first journey now and experience the smartest way to navigate Metro Manila
-                </Text>
-                <TouchableOpacity style={styles.ctaButton} activeOpacity={0.8}>
-                  <Text style={styles.ctaButtonText}>Get Started</Text>
-                  <Icon name="arrow-right" size={16} color={colors.primary} style={styles.ctaButtonIcon} />
-                </TouchableOpacity>
-              </LinearGradient>
-            </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </View>
-    </SafeAreaView>
+              </Card.Content>
+            </Card>
+          </Animated.View>
+        </View>
+      </KeyboardAvoidingView>
+      
+      {/* Snackbar for notifications */}
+      <Snackbar
+        visible={snackbarVisible}
+        onDismiss={() => setSnackbarVisible(false)}
+        duration={4000}
+        style={styles.snackbar}
+        action={{
+          label: 'OK',
+          onPress: () => setSnackbarVisible(false),
+        }}
+      >
+        {snackbarMessage}
+      </Snackbar>
+    </PaperProvider>
   );
 };
 
+// Styles
 const styles = StyleSheet.create({
-  safeContainer: {
+  container: {
     flex: 1,
-    backgroundColor: colors.primaryDark,
+    backgroundColor: '#f5f7f9',
   },
-  appContainer: {
+  mainContainer: {
     flex: 1,
-    backgroundColor: colors.background,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 40,
-  },
-  customInputContainer: {
-    flex: 1,
-  },
-  destinationInput: {
-    height: 60,
-    fontSize: 16,
-    paddingHorizontal: 10,
-  },
-  heroSection: {
-    width: '100%',
-    overflow: 'hidden',
-  },
-  heroGradient: {
-    paddingTop: Platform.OS === 'ios' ? 20 : StatusBar.currentHeight + 20,
-    paddingBottom: 80,
-  },
-  heroContent: {
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  heroTitle: {
-    fontSize: 46,
-    fontWeight: '900',
-    color: 'white',
-    marginBottom: 16,
-    textAlign: 'center',
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 3 },
-    textShadowRadius: 8,
-    letterSpacing: 0.5,
-  },
-  heroSubtitle: {
-    fontSize: 18,
-    fontWeight: '400',
-    color: 'white',
-    opacity: 0.95,
-    textAlign: 'center',
-    marginBottom: 35,
-    paddingHorizontal: 15,
-    lineHeight: 26,
-  },
-  chipsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    padding: 16,
     justifyContent: 'center',
-    marginTop: 15,
-    gap: 12,
   },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 50,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    elevation: 2,
-    shadowColor: 'rgba(0,0,0,0.2)',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    marginHorizontal: 4,
-    marginBottom: 8,
+  contentContainer: {
+    width: '100%',
+    maxWidth: 550, // Similar to Container maxWidth
+    alignSelf: 'center',
   },
-  chipSelected: {
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderColor: '#fff',
+  card: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    elevation: 8,
   },
-  chipText: {
-    color: 'white',
-    marginLeft: 8,
-    fontWeight: '600',
-  },
-  chipTextSelected: {
-    color: colors.primary,
-  },
-  routeFormContainer: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 24,
-    marginTop: -50,
-    marginHorizontal: 16,
+  cardContent: {
     padding: 24,
-    elevation: 10,
-    shadowColor: 'rgba(0,0,0,0.3)',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(200, 200, 200, 0.3)',
   },
-  sectionTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: colors.primary,
-    marginBottom: 25,
-    paddingBottom: 10,
-    borderBottomWidth: 3,
-    borderBottomColor: colors.primaryLight,
-    alignSelf: 'flex-start',
-  },
-  locationSection: {
+  headerContainer: {
+    alignItems: 'center',
     marginBottom: 24,
   },
-  locationHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 14,
+  avatar: {
+    backgroundColor: '#0b617e',
+    marginBottom: 16,
+    elevation: 4,
   },
-  locationMarker: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#0b617e',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#546e7a',
+    textAlign: 'center',
+    marginBottom: 24,
+    paddingHorizontal: 16,
+  },
+  stepContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 24,
+    paddingHorizontal: 8,
+  },
+  stepWrapper: {
+    flex: 1,
+    alignItems: 'center',
+    position: 'relative',
+  },
+  stepCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 14,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
+    marginBottom: 8,
   },
-  locationMarkerText: {
-    color: 'white',
+  activeStep: {
+    backgroundColor: '#0b617e',
+    elevation: 2,
+  },
+  inactiveStep: {
+    backgroundColor: '#e0e0e0',
+  },
+  stepLabel: {
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  activeStepLabel: {
+    color: '#0b617e',
+    fontWeight: '600',
+  },
+  inactiveStepLabel: {
+    color: '#757575',
+  },
+  activeStepText: {
+    color: '#ffffff',
     fontWeight: 'bold',
-    fontSize: 18,
+  },
+  inactiveStepText: {
+    color: '#757575',
+    fontWeight: 'bold',
+  },
+  stepConnector: {
+    position: 'absolute',
+    height: 3,
+    width: '100%',
+    top: 16,
+    left: '50%',
+    zIndex: -1,
+  },
+  activeConnector: {
+    backgroundColor: '#0b617e',
+  },
+  inactiveConnector: {
+    backgroundColor: '#e0e0e0',
+  },
+  errorContainer: {
+    backgroundColor: '#ffebee',
+    borderRadius: 12,
+    padding: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  errorContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  errorText: {
+    color: '#d32f2f',
+    marginLeft: 8,
+    flex: 1,
+  },
+  sectionContainer: {
+    marginBottom: 24,
+  },
+  locationTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   locationTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: colors.textPrimary,
+    color: '#0b617e',
   },
-  inputContainer: {
-    flexDirection: 'row',
-    marginLeft: 0,
-    alignItems: 'center',
-  },
-  inputWrapper: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f9f9f9',
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  inputIcon: {
-    paddingHorizontal: 15,
-  },
-  input: {
-    flex: 1,
-    height: 60,
-    paddingHorizontal: 10,
-    fontSize: 16,
-  },
-  locationButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: colors.primaryLight,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 10,
-    elevation: 6,
-    shadowColor: colors.primaryLight,
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-  },
-  connectionLineContainer: {
-    alignItems: 'center',
-    marginVertical: 8,
-  },
-  connectionLine: {
-    height: 60,
-    width: 2,
-    backgroundImage: `linear-gradient(to bottom, ${colors.primaryLight}, ${colors.accent})`,
-    borderRadius: 1,
-  },
-  googlePlacesContainer: {
-    zIndex: 10,
-  },
-  destinationInputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f9f9f9',
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  actionButtonContainer: {
-    alignItems: 'center',
-    marginTop: 30,
-    marginBottom: 10,
-  },
-  actionButton: {
-    width: '100%',
-    borderRadius: 20,
-    overflow: 'hidden',
-    elevation: 6,
-    shadowColor: colors.primaryLight,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-  },
-  actionButtonGradient: {
-    flexDirection: 'row',
-    paddingVertical: 16,
-    paddingHorizontal: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  actionButtonDisabled: {
-    opacity: 0.6,
-    elevation: 0,
-    shadowOpacity: 0,
-  },
-  actionButtonIcon: {
-    marginRight: 10,
-  },
-  actionButtonText: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: '600',
-    letterSpacing: 0.5,
-  },
-  featuresSection: {
-    marginTop: 40,
-    paddingHorizontal: 16,
-  },
-  featuresTitleContainer: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  featuresSectionTitle: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: colors.primary,
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-  titleUnderline: {
-    width: 80,
-    height: 4,
-    backgroundColor: colors.primaryLight,
-    borderRadius: 2,
-    marginTop: 8,
-  },
-  featuresGrid: {
-    marginTop: 30,
-  },
-  featureCard: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 20,
-    padding: 24,
-    marginBottom: 30,
-    elevation: 6,
-    shadowColor: 'rgba(0,0,0,0.2)',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(230, 230, 230, 0.9)',
-  },
-  featureIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: `rgba(11, 97, 126, 0.08)`,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-    alignSelf: 'center',
-    marginTop: -40,
-    borderWidth: 5,
-    borderColor: colors.cardBackground,
-    elevation: 8,
-    shadowColor: 'rgba(11, 97, 126, 0.3)',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-  },
-  featureTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.primary,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  featureDescription: {
-    fontSize: 15,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  testimonialsSection: {
-    marginTop: 20,
-    marginBottom: 20,
-    paddingHorizontal: 16,
-  },
-  testimonialsSectionTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: colors.primary,
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  testimonialCard: {
-    backgroundColor: colors.cardBackground,
-    borderRadius: 20,
-    padding: 24,
-    elevation: 6,
-    shadowColor: 'rgba(0,0,0,0.2)',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(230, 230, 230, 0.9)',
-  },
-  testimonialHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  testimonialAvatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: `rgba(11, 97, 126, 0.1)`,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  testimonialName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: colors.textPrimary,
-  },
-  testimonialLocation: {
-    fontSize: 14,
-    color: colors.textSecondary,
-  },
-  testimonialRating: {
-    flexDirection: 'row',
-    marginLeft: 'auto',
-  },
-  testimonialText: {
-    fontSize: 16,
-    color: colors.textPrimary,
-    lineHeight: 24,
-    fontStyle: 'italic',
-    marginTop: 5,
-  },
-  ctaSection: {
-    marginTop: 30,
-    marginHorizontal: 16,
-    borderRadius: 24,
-    overflow: 'hidden',
-    elevation: 8,
-    shadowColor: 'rgba(0,0,0,0.3)',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-  },
-  ctaGradient: {
-    padding: 30,
-    alignItems: 'center',
-  },
-  ctaTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: 'white',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  ctaSubtitle: {
-    fontSize: 16,
-    fontWeight: '400',
-    color: 'white',
-    opacity: 0.9,
-    textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 24,
-  },
-  ctaButton: {
-    flexDirection: 'row',
-    backgroundColor: 'white',
-    paddingVertical: 14,
-    paddingHorizontal: 30,
-    borderRadius: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 4,
-    shadowColor: 'rgba(0,0,0,0.3)',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-  },
-  ctaButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.primary,
+  locationIcon: {
     marginRight: 8,
   },
-  ctaButtonIcon: {
-    marginTop: 1,
+  locationCard: {
+    borderRadius: 12,
+    padding: 16,
+    elevation: 2,
+  },
+  locationContent: {
+    flexDirection: 'column',
+  },
+  addressContainer: {
+    marginBottom: 12,
+  },
+  addressText: {
+    fontSize: 16,
+    color: '#263238',
+    marginBottom: 8,
+  },
+  placeholderText: {
+    fontSize: 16,
+    color: '#757575',
+    marginBottom: 8,
+  },
+  locationButton: {
+    borderRadius: 12,
+  },
+  buttonLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  destinationContainer: {
+    borderRadius: 12,
+    padding: 0,
+    overflow: 'visible', // Changed to visible to allow dropdown to show
+    elevation: 2,
+    minHeight: 50, // Minimum height for the input
+    zIndex: 1, // Ensure it's above other elements
+  },
+  clearButton: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 8,
+    marginRight: 8,
+  },
+  buttonContainer: {
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  navigateButton: {
+    paddingVertical: 8,
+    elevation: 4,
+    width: '70%',
+  },
+  navigateButtonLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  navigateButtonContent: {
+    height: 48,
+  },
+  snackbar: {
+    bottom: 20,
   },
 });
 
-// Make sure to export the component as default
 export default Home;

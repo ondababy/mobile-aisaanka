@@ -192,34 +192,32 @@ function Dashboard({ navigation }) {
     }
   }, [userCoords]);
 
-  // Set up auto-refresh intervals
-  useEffect(() => {
-    if (!autoRefreshEnabled) return;
+// Initial data loading with a delay to ensure component is fully mounted
+useEffect(() => {
+  console.log("🚀 Dashboard initialized");
+  
+  // Add a delay before first location request to ensure native bridge is ready
+  const initTimer = setTimeout(() => {
+    getUserLocation().catch(error => {
+      console.log("⚠️ Initial location fetch failed, will retry shortly");
+      // Retry after a short delay if initial fetch fails
+      setTimeout(() => {
+        getUserLocation();
+      }, 2000);
+    });
+  }, 1000);
+  
+  return () => clearTimeout(initTimer);
+}, []);
 
-    console.log("🔄 Setting up auto-refresh...");
-
-    // Refresh weather data every 15 minutes
-    const weatherRefreshInterval = setInterval(() => {
-      console.log("🔄 Auto-refreshing weather data...");
-      if (userCoords) {
-        fetchWeatherData(userCoords);
-      }
-    }, 15 * 60 * 1000); // 15 minutes
-
-    // Refresh traffic data every 5 minutes
-    const trafficRefreshInterval = setInterval(() => {
-      console.log("🔄 Auto-refreshing traffic data...");
-      if (userCoords) {
-        fetchTrafficData(userCoords);
-      }
-    }, 5 * 60 * 1000); // 5 minutes
-
-    // Clean up intervals on component unmount
-    return () => {
-      clearInterval(weatherRefreshInterval);
-      clearInterval(trafficRefreshInterval);
-    };
-  }, [userCoords, autoRefreshEnabled]);
+// Fetch data when coordinates are available
+useEffect(() => {
+  if (userCoords) {
+    console.log("📍 User coordinates updated, fetching fresh data");
+    fetchWeatherData(userCoords);
+    fetchTrafficData(userCoords);
+  }
+}, [userCoords]);
 
   // Pull to refresh handler
   const onRefresh = useCallback(() => {
@@ -238,84 +236,98 @@ function Dashboard({ navigation }) {
     });
   }, [userCoords]);
 
-  // Get user's current location using expo-location
-  const getUserLocation = async () => {
-    setLocationLoading(true);
-    setLocationError(null);
-    console.log("🔍 Attempting to get user location...");
+// Get user's current location using expo-location with improved error handling
+const getUserLocation = async () => {
+  setLocationLoading(true);
+  setLocationError(null);
+  console.log("🔍 Attempting to get user location...");
 
-    try {
-      // Request permission first
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      
-      if (status !== 'granted') {
-        console.log("⚠️ Location permission denied");
-        setLocationError("Unable to access your location. Using default location.");
-        setLocationLoading(false);
-        setUserCoords({ lat: 14.5995, lng: 120.9842 });
-        setUserLocation("Manila, Philippines");
-        console.log("⚠️ Using default location: Manila, Philippines");
-        return;
-      }
-      
-      // Get current position
-      let location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      
-      const { latitude, longitude } = location.coords;
-      console.log("📍 User coordinates obtained:", { latitude, longitude });
-      setUserCoords({ lat: latitude, lng: longitude });
-      
-      // Reverse geocode to get address
-      try {
-        const geocode = await Location.reverseGeocodeAsync({
-          latitude,
-          longitude
-        });
-        
-        if (geocode && geocode.length > 0) {
-          const address = geocode[0];
-          console.log("🏙️ Geocoding result:", address);
-          
-          // Format a nice address string
-          let locationName;
-          
-          if (address.city) {
-            if (address.district) {
-              locationName = `${address.district}, ${address.city}`;
-            } else {
-              locationName = address.city;
-            }
-          } else if (address.region) {
-            locationName = address.region;
-          } else {
-            locationName = "Philippines";
-          }
-          
-          console.log("📍 Formatted location name:", locationName);
-          setUserLocation(locationName);
-        } else {
-          // Fallback
-          setUserLocation("Philippines");
-        }
-      } catch (error) {
-        console.error("❌ Error in reverse geocoding:", error);
-        setUserLocation("Philippines");
-      }
-      
-      setLocationLoading(false);
-    } catch (error) {
-      console.error("❌ Error getting location:", error);
-      setLocationError("Unable to access your location. Using default location.");
-      setLocationLoading(false);
-      setUserCoords({ lat: 14.5995, lng: 120.9842 });
-      setUserLocation("Manila, Philippines");
-      console.log("⚠️ Using default location: Manila, Philippines");
+  try {
+    // First, check if location services are enabled
+    const servicesEnabled = await Location.hasServicesEnabledAsync();
+    if (!servicesEnabled) {
+      console.log("⚠️ Location services are not enabled");
+      throw new Error("Location services are not enabled on this device");
+    }
+
+    // Request permission first
+    let { status } = await Location.requestForegroundPermissionsAsync();
+    
+    if (status !== 'granted') {
+      console.log("⚠️ Location permission denied");
+      throw new Error("Location permission not granted");
     }
     
-    return Promise.resolve(); // For chaining in onRefresh
-  };
+    // Add a small delay to ensure native bridge is ready
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    // Get current position with a timeout
+    let location = await Promise.race([
+      Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("Location request timed out")), 10000)
+      )
+    ]);
+    
+    const { latitude, longitude } = location.coords;
+    console.log("📍 User coordinates obtained:", { latitude, longitude });
+    setUserCoords({ lat: latitude, lng: longitude });
+    
+    // Reverse geocode to get address
+    try {
+      const geocode = await Location.reverseGeocodeAsync({
+        latitude,
+        longitude
+      });
+      
+      if (geocode && geocode.length > 0) {
+        const address = geocode[0];
+        console.log("🏙️ Geocoding result:", address);
+        
+        // Format a nice address string
+        let locationName;
+        
+        if (address.city) {
+          if (address.district) {
+            locationName = `${address.district}, ${address.city}`;
+          } else {
+            locationName = address.city;
+          }
+        } else if (address.region) {
+          locationName = address.region;
+        } else {
+          locationName = "Philippines";
+        }
+        
+        console.log("📍 Formatted location name:", locationName);
+        setUserLocation(locationName);
+      } else {
+        // Fallback
+        setUserLocation("Philippines");
+      }
+    } catch (error) {
+      console.error("❌ Error in reverse geocoding:", error);
+      setUserLocation("Philippines");
+    }
+    
+    setLocationLoading(false);
+  } catch (error) {
+    console.error("❌ Error getting location:", error);
+    setLocationError("Unable to access your location. Using default location.");
+    
+    // Use default location
+    setUserCoords({ lat: 14.5995, lng: 120.9842 });
+    setUserLocation("Manila, Philippines");
+    console.log("⚠️ Using default location: Manila, Philippines");
+    
+    // Continue with default location data
+    setLocationLoading(false);
+  }
+  
+  return Promise.resolve(); // For chaining in onRefresh
+};
 
   // Fetch real-time weather data from OpenMeteo API
   const fetchWeatherData = async (coords) => {
@@ -1716,6 +1728,25 @@ const styles = StyleSheet.create({
   bottomSpacer: {
     height: 60,
   },
+
+  // Add these to the existing styles object
+retryButton: {
+  backgroundColor: theme.colors.primary,
+  paddingHorizontal: theme.spacing.md,
+  paddingVertical: theme.spacing.xs,
+  borderRadius: theme.borderRadius.small,
+  marginLeft: theme.spacing.sm,
+},
+retryButtonText: {
+  color: 'white',
+  fontSize: theme.fontSizes.sm,
+  fontWeight: theme.fontWeights.medium,
+},
+loadingText: {
+  marginTop: theme.spacing.md,
+  fontSize: theme.fontSizes.md,
+  color: theme.colors.textSecondary,
+},
 });
 
 export default Dashboard;

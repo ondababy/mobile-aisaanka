@@ -7,6 +7,10 @@ import morgan from "morgan";
 
 import dotenv from "dotenv";
 import authRoutes from "./routes/authRoutes.js";
+import reviewRoutes from "./routes/reviewRoutes.js";
+import placeRoutes from "./routes/placeRoutes.js";
+import routeRoutes from "./routes/routeRoutes.js";
+import userRoutes from "./routes/userRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -27,6 +31,10 @@ app.use(cors());
 app.use(morgan("dev"));
 
 app.use("/api/auth", authRoutes);
+app.use("/api/review", reviewRoutes);
+app.use("/api/routes", routeRoutes);
+app.use("/api/user", userRoutes);
+app.use("/api/place", placeRoutes);
 
 app.use((req, res, next) => {
     res.status(404).json({ message: 'Route not found' });

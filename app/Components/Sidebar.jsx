@@ -11,7 +11,7 @@ import {
   Platform,
   ActivityIndicator
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { router, usePathname } from 'expo-router'; // Use Expo Router instead
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -88,8 +88,7 @@ const Sidebar = ({ isExpanded = false, onToggle }) => {
   const [loading, setLoading] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
   const [isLogoutPressed, setIsLogoutPressed] = useState(false);
-  const navigation = useNavigation();
-  const route = useRoute();
+  const pathname = usePathname(); // Use Expo Router's pathname hook
   
   // Animated values
   const widthAnim = React.useRef(new Animated.Value(isExpanded ? DRAWER_EXPANDED_WIDTH : DRAWER_COLLAPSED_WIDTH)).current;
@@ -101,34 +100,34 @@ const Sidebar = ({ isExpanded = false, onToggle }) => {
     { 
       text: 'Dashboard', 
       icon: <MaterialIcons name="dashboard" size={24} color={THEME.colors.secondary} />, 
-      route: 'Screen/Dashboard',
+      route: '/Screen/Dashboard',
       activeIcon: <MaterialIcons name="dashboard" size={24} color={THEME.colors.primary} />
     },
     { 
       text: 'Home', 
       icon: <Ionicons name="home-outline" size={24} color={THEME.colors.secondary} />, 
-      route: 'Screen/Home',
+      route: '/Screen/Home',
       activeIcon: <Ionicons name="home" size={24} color={THEME.colors.primary} />
     },
     { 
       text: 'Profile', 
       icon: <Ionicons name="person-outline" size={24} color={THEME.colors.secondary} />, 
-      route: 'Screen/Profile',
+      route: '/Screen/Profile',
       activeIcon: <Ionicons name="person" size={24} color={THEME.colors.primary} />
     },
     { 
       text: 'Travel History', 
       icon: <MaterialCommunityIcons name="history" size={24} color={THEME.colors.secondary} />, 
-      route: 'Screen/History',
+      route: '/Screen/History',
       activeIcon: <MaterialCommunityIcons name="history" size={24} color={THEME.colors.primary} />
     },
   ];
 
   useEffect(() => {
-    // Get user info from AsyncStorage
+    // Get user info from AsyncStorage with the correct key "userData" instead of "user"
     const getUserInfo = async () => {
       try {
-        const userData = await AsyncStorage.getItem('user');
+        const userData = await AsyncStorage.getItem('userData');
         if (userData) {
           setUserInfo(JSON.parse(userData));
         }
@@ -198,14 +197,11 @@ const Sidebar = ({ isExpanded = false, onToggle }) => {
       
       // Clear user data from AsyncStorage
       await AsyncStorage.removeItem('token');
-      await AsyncStorage.removeItem('user');
+      await AsyncStorage.removeItem('userData');
       await AsyncStorage.removeItem('redirectPath');
       
-      // Navigate to login screen
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Login' }],
-      });
+      // Navigate to login screen using Expo Router
+      router.replace('/');
     } catch (error) {
       console.log('Error logging out', error);
     } finally {
@@ -215,10 +211,9 @@ const Sidebar = ({ isExpanded = false, onToggle }) => {
   };
 
   const isActive = (routeName) => {
-    // Handle path matching for improved navigation
-    const currentRoute = route.name;
-    return currentRoute === routeName || (currentRoute.includes('/') && routeName.includes('/') && 
-      currentRoute.split('/')[1] === routeName.split('/')[1]);
+    // Check if the current path matches or starts with the route
+    return pathname === routeName || 
+      (pathname && routeName && pathname.startsWith(routeName));
   };
 
   const getInitials = (name) => {
@@ -238,7 +233,7 @@ const Sidebar = ({ isExpanded = false, onToggle }) => {
     }
     
     // Use router.push instead of navigate
-    navigation.push(routeName);
+    router.push(routeName);
     
     // Auto-close sidebar after navigation on mobile
     if (Platform.OS === 'ios' || Platform.OS === 'android') {
@@ -343,10 +338,10 @@ const Sidebar = ({ isExpanded = false, onToggle }) => {
               <View style={styles.onlineIndicator} />
             </View>
 
-            {/* User info - only visible when expanded */}
             {expanded && (
               <View style={styles.userInfo}>
                 <Text style={styles.userName}>{userInfo?.name || 'User'}</Text>
+                <Text style={styles.userEmail}>{userInfo?.email || 'No email available'}</Text>
                 <View style={styles.roleBadge}>
                   <Text style={styles.roleText}>{userInfo?.role || 'user'}</Text>
                 </View>
@@ -483,7 +478,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    height: 150, // Reduced from 180
+    height: 150,
     borderBottomWidth: 1,
     borderBottomColor: THEME.colors.divider,
     alignItems: 'center',
@@ -557,6 +552,12 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: THEME.fontSize.lg,
     fontWeight: THEME.fontWeight.bold,
+  },
+  userEmail: {
+    fontSize: THEME.fontSize.sm,
+    color: THEME.colors.textSecondary,
+    marginBottom: THEME.spacing.xs,
+    textAlign: 'center',
   },
   onlineIndicator: {
     width: 10,

@@ -142,6 +142,7 @@ const Profile = () => {
   const navigation = useNavigation();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [updateLoading, setUpdateLoading] = useState(false);
   const [error, setError] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editData, setEditData] = useState({
@@ -154,22 +155,77 @@ const Profile = () => {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   
-  // This would come from your environment config in a real app
-  const API_URL = 'https://your-api-url.com/api';
+  const API_URL = 'http://192.168.75.112:5000/api';
 
   useEffect(() => {
     fetchProfile();
   }, []);
 
+  // Helper function to ensure proper parsing of the age value
+  const parseAge = (ageValue) => {
+    if (ageValue === null || ageValue === undefined || ageValue === '') {
+      return null;
+    }
+    
+    // If it's already a number, return it
+    if (typeof ageValue === 'number') {
+      return ageValue;
+    }
+    
+    // Try to parse it as a number
+    const parsedAge = parseInt(ageValue, 10);
+    if (!isNaN(parsedAge)) {
+      return parsedAge;
+    }
+    
+    return null;
+  };
+
+  // Helper function to ensure proper parsing of the isVerified value
+  const parseVerificationStatus = (status) => {
+    if (status === true || status === 1 || status === '1' || status === 'true') {
+      return true;
+    }
+    return false;
+  };
+
   const fetchProfile = async () => {
     try {
       console.log('📡 Fetching user profile...');
-      const token = await AsyncStorage.getItem('token');
-
+      
+      // Try to get user data from AsyncStorage first
+      const userData = await AsyncStorage.getItem('userData');
+      
+      if (userData) {
+        const parsedData = JSON.parse(userData);
+        console.log('✅ Profile Data from AsyncStorage:', parsedData);
+        
+        // Fix the age and isVerified values in case they're incorrect
+        parsedData.age = parseAge(parsedData.age);
+        parsedData.isVerified = parseVerificationStatus(parsedData.isVerified);
+        
+        // Log the values after processing
+        console.log('Age after parsing:', parsedData.age);
+        console.log('Verification status after parsing:', parsedData.isVerified);
+        
+        setProfile(parsedData);
+        setEditData({
+          name: parsedData.name || '',
+          username: parsedData.username || '',
+          email: parsedData.email || '',
+          password: '',
+        });
+        setLoading(false);
+        return;
+      }
+      
+      // If no local data, fetch from API
+      const token = await AsyncStorage.getItem('userToken');
+  
       if (!token) {
         throw new Error('No token found. Please log in again.');
       }
-
+  
       const response = await fetch(`${API_URL}/auth/profile`, {
         method: 'GET',
         headers: {
@@ -177,13 +233,25 @@ const Profile = () => {
           Authorization: `Bearer ${token}`,
         },
       });
-
+  
       if (!response.ok) {
         throw new Error(`Failed to fetch profile. Status: ${response.status}`);
       }
-
+  
       const data = await response.json();
-      console.log('✅ Profile Data:', data);
+      console.log('✅ Profile Data from API:', data);
+      
+      // Fix the age and isVerified values
+      data.age = parseAge(data.age);
+      data.isVerified = parseVerificationStatus(data.isVerified);
+      
+      // Log the values after processing
+      console.log('Age after parsing:', data.age);
+      console.log('Verification status after parsing:', data.isVerified);
+      
+      // Save to AsyncStorage
+      await AsyncStorage.setItem('userData', JSON.stringify(data));
+      
       setProfile(data);
       setEditData({
         name: data.name || '',
@@ -199,6 +267,8 @@ const Profile = () => {
     }
   };
 
+
+  // Update the handleUpdateProfile function to use updateLoading instead of loading
   const handleUpdateProfile = async () => {
     if (!currentPassword) {
       Alert.alert('Error', 'Current password is required to make changes');
@@ -215,10 +285,11 @@ const Profile = () => {
       return;
     }
 
-    setLoading(true);
+    // Use updateLoading instead of the general loading state
+    setUpdateLoading(true);
 
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = await AsyncStorage.getItem('userToken');
       if (!token) throw new Error('No authentication token found');
 
       // Create payload with only the fields that have changed plus current password
@@ -244,6 +315,10 @@ const Profile = () => {
           .concat(payload.newPassword ? ['newPassword'] : [])
       );
 
+      // Add timeout to the fetch request
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); 
+
       const response = await fetch(`${API_URL}/auth/profile/update`, {
         method: 'PUT',
         headers: {
@@ -251,7 +326,10 @@ const Profile = () => {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(payload),
+        signal: controller.signal
       });
+
+      clearTimeout(timeoutId); // Clear the timeout if request completes
 
       const data = await response.json();
       console.log('Response:', data);
@@ -262,13 +340,21 @@ const Profile = () => {
 
       // Update token if provided
       if (data.token) {
-        await AsyncStorage.setItem('token', data.token);
+        await AsyncStorage.setItem('userToken', data.token);
         console.log('Token updated');
       }
 
-      // Update local state with the returned user data
+      // Update local state and AsyncStorage with the returned user data
       if (data.user) {
+        // Fix the age and isVerified values
+        data.user.age = parseAge(data.user.age);
+        data.user.isVerified = parseVerificationStatus(data.user.isVerified);
+        
         setProfile(data.user);
+
+        // Update AsyncStorage with new user data
+        await AsyncStorage.setItem('userData', JSON.stringify(data.user));
+        console.log('User data updated in AsyncStorage');
 
         // Also update the edit data to match the new profile
         setEditData({
@@ -287,10 +373,22 @@ const Profile = () => {
       Alert.alert('Success', data.message || 'Profile updated successfully');
     } catch (error) {
       console.error('Profile update error:', error);
-      Alert.alert('Error', error.message || 'Failed to update profile');
+      if (error.name === 'AbortError') {
+        Alert.alert('Error', 'The request took too long to complete. Please try again.');
+      } else {
+        Alert.alert('Error', error.message || 'Failed to update profile');
+      }
     } finally {
-      setLoading(false);
+      setUpdateLoading(false);
     }
+  };
+
+  // Display age properly
+  const renderAge = (age) => {
+    if (age === null || age === undefined || age === '') {
+      return 'Not specified';
+    }
+    return String(age);
   };
 
   if (loading) {
@@ -418,7 +516,7 @@ const Profile = () => {
                 
                 <View style={styles.detailItem}>
                   <Text style={styles.detailLabel}>Age</Text>
-                  <Text style={styles.detailValue}>{profile.age || 'Not specified'}</Text>
+                  <Text style={styles.detailValue}>{renderAge(profile.age)}</Text>
                 </View>
               </View>
             </View>
@@ -574,9 +672,9 @@ const Profile = () => {
                   !currentPassword && styles.saveButtonDisabled,
                 ]}
                 onPress={handleUpdateProfile}
-                disabled={!currentPassword || loading}
+                disabled={!currentPassword || updateLoading}
               >
-                {loading ? (
+                {updateLoading ? (
                   <ActivityIndicator size="small" color="white" />
                 ) : (
                   <Text style={styles.saveButtonText}>Save Changes</Text>

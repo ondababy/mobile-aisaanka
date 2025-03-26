@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   View, 
   TextInput, 
@@ -23,8 +23,7 @@ const Review = () => {
   const [loading, setLoading] = useState(false);
   const navigation = useNavigation();
 
-  // Function to handle form submission
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (rating === 0) {
       Alert.alert("Rating Required", "Please provide a star rating before submitting!", [
         { text: "OK", style: "cancel" },
@@ -34,17 +33,65 @@ const Review = () => {
 
     setLoading(true);
 
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      // Get the user token from AsyncStorage
+      const token = await AsyncStorage.getItem('userToken');
+      console.log('User token:', token); // Check if token exists
       
-      Alert.alert("Review Submitted", "Thank you for your feedback!", [
-        { text: "OK", onPress: () => navigation.goBack() },
+      if (!token) {
+        console.log('User not logged in - cannot submit review');
+        Alert.alert("Authentication Required", "Please log in to submit a review.", [
+          { text: "OK", style: "cancel" },
+        ]);
+        setLoading(false);
+        return;
+      }
+
+      // Prepare the review data
+      const reviewData = {
+        rating: rating,
+        suggestion: suggestion,
+        issue: issue,
+        time: new Date().toISOString()
+      };
+
+      // Make the API call
+      const response = await fetch('http://192.168.75.112:5000/api/review', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(reviewData),
+      });
+
+      // Check if the request was successful
+      if (response.ok) {
+        const data = await response.json();
+        
+        // You could optionally save the review locally
+        console.log('Review submitted successfully:', data);
+        
+        Alert.alert("Review Submitted", "Thank you for your feedback!", [
+          { text: "OK", onPress: () => navigation.goBack() },
+        ]);
+        
+        // Reset form
+        setSuggestion("");
+        setIssue("");
+        setRating(0);
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to submit review');
+      }
+    } catch (error) {
+      console.error('Error submitting review:', error.response?.data || error.message);
+      Alert.alert("Submission Failed", "There was an error submitting your feedback. Please try again later.", [
+        { text: "OK" },
       ]);
-      
-      setSuggestion("");
-      setIssue("");
-      setRating(0);
-    }, 800);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Get rating text display
